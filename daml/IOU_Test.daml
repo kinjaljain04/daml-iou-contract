@@ -1,0 +1,106 @@
+-- IOU_Test.daml
+-- Daml Script tests for the IOU contract
+-- Run with: dpm test
+
+module IOU_Test where
+
+import Daml.Script
+import IOU
+
+-- TEST 1: Create an IOU
+-- Alice (issuer) owes Bob (owner) 100 USD
+testCreateIOU : Script ()
+testCreateIOU = do
+  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  bob   <- allocatePartyWithHint "Bob"   (PartyIdHint "Bob")
+
+  iouId <- submit alice do
+    createCmd IOU with
+      issuer   = alice
+      owner    = bob
+      amount   = 100.0
+      currency = "USD"
+
+  Some iou <- queryContractId alice iouId
+  assertMsg "Issuer should be Alice" (iou.issuer == alice)
+  assertMsg "Owner should be Bob"    (iou.owner  == bob)
+  assertMsg "Amount should be 100"   (iou.amount  == 100.0)
+
+  debug "TEST 1 PASSED: Alice created IOU for Bob"
+  return ()
+
+-- TEST 2: Transfer IOU from Bob to Carol
+-- Bob (owner) transfers his right to receive payment to Carol
+testTransferIOU : Script ()
+testTransferIOU = do
+  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  bob   <- allocatePartyWithHint "Bob"   (PartyIdHint "Bob")
+  carol <- allocatePartyWithHint "Carol" (PartyIdHint "Carol")
+
+  iouId <- submit alice do
+    createCmd IOU with
+      issuer   = alice
+      owner    = bob
+      amount   = 250.0
+      currency = "GBP"
+
+  -- Only bob (controller) can call Transfer
+  newIouId <- submit bob do
+    exerciseCmd iouId Transfer with newOwner = carol
+
+  Some newIou <- queryContractId alice newIouId
+  assertMsg "Carol is new owner"        (newIou.owner  == carol)
+  assertMsg "Amount unchanged"          (newIou.amount == 250.0)
+
+  -- Old IOU is archived after transfer
+  oldIou <- queryContractId alice iouId
+  assertMsg "Old IOU is archived"       (oldIou == None)
+
+  debug "TEST 2 PASSED: Bob transferred IOU to Carol"
+  return ()
+
+-- TEST 3: Alice repays the IOU
+-- Repay archives the contract — the debt is cleared
+testRepayIOU : Script ()
+testRepayIOU = do
+  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  bob   <- allocatePartyWithHint "Bob"   (PartyIdHint "Bob")
+
+  iouId <- submit alice do
+    createCmd IOU with
+      issuer   = alice
+      owner    = bob
+      amount   = 500.0
+      currency = "EUR"
+
+  -- Only alice (controller) can call Repay
+  submit alice do
+    exerciseCmd iouId Repay
+
+  -- Contract should be gone after repayment
+  result <- queryContractId alice iouId
+  assertMsg "IOU archived after repay" (result == None)
+
+  debug "TEST 3 PASSED: Alice repaid and archived the IOU"
+  return ()
+
+-- NEGATIVE TEST: Bob cannot repay (wrong controller)
+-- submitMustFail proves the system correctly blocks unauthorized actions
+testUnauthorizedRepay : Script ()
+testUnauthorizedRepay = do
+  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  bob   <- allocatePartyWithHint "Bob"   (PartyIdHint "Bob")
+
+  iouId <- submit alice do
+    createCmd IOU with
+      issuer   = alice
+      owner    = bob
+      amount   = 100.0
+      currency = "USD"
+
+  -- Bob tries to repay Alice's debt — must fail
+  submitMustFail bob do
+    exerciseCmd iouId Repay
+
+  debug "NEGATIVE TEST PASSED: Bob correctly blocked from repaying"
+  return ()
