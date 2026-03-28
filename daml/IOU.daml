@@ -1,0 +1,69 @@
+-- IOU.daml
+-- A simple I-Owe-You debt contract on Canton Network
+--
+-- Daml concepts covered:
+--   template   = blueprint for a contract (like a class in Python)
+--   signatory  = party whose signature creates and validates the contract
+--   observer   = party who can SEE but not change the contract
+--   choice     = an action that can be taken on the contract
+--   controller = the party allowed to trigger a choice
+--   ensure     = a guard that prevents logically invalid contracts
+--
+-- CompliDaml Canton Baseline rules satisfied:
+--   CB-001: Archive choice present           ✅
+--   CB-002: Signatory declared               ✅
+--   CB-003: Ensure clause present            ✅
+--   CB-005: Every choice has a controller    ✅
+
+module IOU where
+
+import Daml.Script
+
+template IOU
+  with
+    issuer   : Party    -- who owes the money (the debtor)
+    owner    : Party    -- who is owed the money (the creditor)
+    amount   : Decimal  -- how much is owed
+    currency : Text     -- e.g. "USD", "GBP", "EUR"
+  where
+    -- CB-002: signatory is required.
+    -- The issuer must sign for this contract to exist on the ledger.
+    signatory issuer
+
+    -- The owner can see this contract but cannot modify it unilaterally.
+    -- This is Canton's privacy model: only signatories and observers
+    -- of a contract can see it. Citi cannot see a Goldman <-> JPMorgan IOU.
+    observer owner
+
+    -- CB-003: ensure prevents logically invalid contracts.
+    -- A zero or negative debt makes no sense — reject at creation time.
+    ensure amount > 0.0
+
+    -- CHOICE 1: Transfer
+    -- The owner transfers their right to receive payment to someone else.
+    -- Only the owner (creditor) can transfer what they are owed.
+    choice Transfer : ContractId IOU
+      with
+        newOwner : Party
+      controller owner
+      do
+        assertMsg "New owner must differ from current owner" (newOwner /= owner)
+        create this with owner = newOwner
+
+    -- CHOICE 2: Repay
+    -- The issuer settles the debt and archives the contract.
+    -- Only the issuer (debtor) can repay their own debt.
+    choice Repay : ()
+      controller issuer
+      do
+        return ()
+
+    -- CHOICE 3: Archive (CB-001)
+    -- Without Archive a contract can never be terminated.
+    -- This matters for GDPR Art. 17 (right to erasure) — if a contract
+    -- holds personal data and cannot be archived, it violates GDPR.
+    -- CB-001 fires as HIGH severity when this is missing.
+    choice Archive : ()
+      controller issuer
+      do
+        return ()
