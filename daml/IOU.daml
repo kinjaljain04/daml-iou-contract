@@ -57,13 +57,3 @@ template IOU
       controller issuer
       do
         return ()
-
-    -- CHOICE 3: Archive (CB-001)
-    -- Without Archive a contract can never be terminated.
-    -- This matters for GDPR Art. 17 (right to erasure) — if a contract
-    -- holds personal data and cannot be archived, it violates GDPR.
-    -- CB-001 fires as HIGH severity when this is missing.
-    choice Archive : ()
-      controller issuer
-      do
-        return ()
